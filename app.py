@@ -1,56 +1,67 @@
+import streamlit as st
+import fitz  # PyMuPDF
+import io
+import tempfile
+from fpdf import FPDF
 import pdfplumber
 import os
-from PyPDF2 import PdfReader, PdfWriter
-from japanera import Japanera
+import re
+from datetime import datetime
 
-def extract_date(text):
-    import re
-    # 和暦日付を探す
-    match = re.search(r"令和(\d)年(\d{1,2})月(\d{1,2})日", text)
+st.title("知事記者会見 PDF 整形ツール（軽量化自動処理）")
+
+uploaded_file = st.file_uploader("PDFファイルをアップロードしてください", type="pdf")
+
+def extract_date(text, filename=None):
+    # 優先1：本文から日付を抽出（例：2025年3月28日）
+    match = re.search(r"(\d{4})[年.\s]*(\d{1,2})[月.\s]*(\d{1,2})日", text)
     if match:
-        era_year, month, day = map(int, match.groups())
-        western_year = 2018 + era_year  # 令和元年＝2019年
-        return f"{western_year}.{month}.{day}"
-    return None
+        year, month, day = map(int, match.groups())
+        return f"{year}.{month}.{day}"
 
-def is_cover_page(text):
-    return "小池知事 定例記者会見" in text and "令和" in text
+    # 優先2：ファイル名から抽出（例：1月17日）
+    if filename:
+        match = re.search(r"(\d{1,2})月(\d{1,2})日", filename)
+        if match:
+            month, day = map(int, match.groups())
+            current_year = datetime.now().year
+            return f"{current_year}.{month}.{day}"
 
-def process_pdf(input_path):
-    # 1. テキストを使って表紙ページを特定
-    cover_pages = []
-    extracted_date = None
+    return "日付未検出"
 
-    with pdfplumber.open(input_path) as pdf:
-        for i, page in enumerate(pdf.pages):
-            text = page.extract_text() or ""
-            if i == 0:
-                cover_pages.append(i)  # 最初のページは必ず削除
-            elif is_cover_page(text):
-                cover_pages.append(i)
-                if not extracted_date:
-                    extracted_date = extract_date(text)
+def process_light_pdf(file):
+    file_bytes = file.read()
 
-    if not extracted_date:
-        print("日付が見つかりませんでした。処理を中止します。")
-        return
+    # 日付取得（本文 + ファイル名）
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        first_page_text = pdf.pages[0].extract_text() or ""
+        date_str = extract_date(first_page_text, uploaded_file.name)
 
-    # 2. 新しいPDFを作成（必要なページだけを追加）
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
+    # PDF画像化（2ページ目以降）
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    pdf = FPDF(unit="mm", format="A4")
+    zoom = 2  # 品質と容量のバランス
 
-    for i in range(len(reader.pages)):
-        if i not in cover_pages:
-            writer.add_page(reader.pages[i])
+    for i in range(1, len(doc)):  # 1ページ目（表紙）をスキップ
+        page = doc.load_page(i)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), dpi=100)
+        temp_img_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
+        pix.save(temp_img_path)
 
-    # 3. ファイル名の自動生成
-    output_filename = f"{extracted_date}知事記者会見資料.pdf"
-    output_path = os.path.join(os.path.dirname(input_path), output_filename)
+        pdf.add_page()
+        pdf.image(temp_img_path, x=0, y=0, w=210, h=297)
+        os.unlink(temp_img_path)
 
-    with open(output_path, "wb") as f:
-        writer.write(f)
+    output_bytes = pdf.output(dest="S").encode("latin1")
+    return output_bytes, date_str
 
-    print(f"保存完了: {output_path}")
-
-# 実行（ファイルパスを書き換えてください）
-process_pdf("3月28日 小池知事定例記者会見資料.pdf")
+if uploaded_file:
+    with st.spinner("PDFを軽量化＆整形中..."):
+        result_pdf, date_str = process_light_pdf(uploaded_file)
+        filename = f"{date_str}知事記者会見.pdf"
+        st.download_button(
+            label=f"{filename} をダウンロード",
+            data=result_pdf,
+            file_name=filename,
+            mime="application/pdf"
+        )
