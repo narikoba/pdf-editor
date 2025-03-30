@@ -2,7 +2,14 @@ import streamlit as st
 import os
 import pdfplumber
 from PyPDF2 import PdfReader, PdfWriter
-from japanera import Japanera
+def extract_date(text):
+    import re
+    match = re.search(r"令和\s*(\d)年\s*(\d{1,2})月\s*(\d{1,2})日", text)
+    if match:
+        era_year, month, day = map(int, match.groups())
+        western_year = 2018 + era_year
+        return f"{western_year}.{month}.{day}"
+    return None
 import tempfile
 
 st.title("知事記者会見資料 PDF 整形ツール")
