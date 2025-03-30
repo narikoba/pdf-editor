@@ -1,6 +1,6 @@
 streamlit
 PyPDF2
 pdfplumber
-pdf2image
 fpdf
+pdf2image
 pillow
