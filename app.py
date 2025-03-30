@@ -42,4 +42,11 @@ def process_light_pdf(file):
 if uploaded_file:
     with st.spinner("PDFを軽量化＆整形中..."):
         result_pdf, date_str = process_light_pdf(uploaded_file)
-        filename = f"{date_str}_
+        filename = f"{date_str}知事記者会見.pdf"
+        st.download_button(
+            label=f"{filename} をダウンロード",
+            data=result_pdf,
+            file_name=filename,
+            mime="application/pdf"
+        )
+        
