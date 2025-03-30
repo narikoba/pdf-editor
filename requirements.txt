@@ -1,4 +1,3 @@
 streamlit
 PyPDF2
 pdfplumber
-japanera==0.3.1
