@@ -38,6 +38,4 @@ def process_light_pdf(file):
         date_str = extract_date(first_page_text, uploaded_file.name)
 
     # 画像化（2ページ目以降）
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    pdf = FPDF(unit="mm", format="A4")
-    zoom =
+    doc = fitz.open(stream=file_bytes_
