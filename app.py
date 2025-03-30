@@ -1,20 +1,18 @@
 import streamlit as st
-import fitz  # PyMuPDF
-import io
-import tempfile
-from fpdf import FPDF
+from PyPDF2 import PdfReader, PdfWriter
 import pdfplumber
-import os
+import tempfile
+import io
 import re
 from datetime import datetime
 
-st.title("知事記者会見 PDF 整形ツール（軽量化自動処理）")
+st.title("知事記者会見 PDF 整形ツール")
 
 uploaded_file = st.file_uploader("PDFファイルをアップロードしてください", type="pdf")
 
 def extract_date(text, filename=None):
-    # 優先1：本文から日付を抽出（例：2025年3月28日）
-    match = re.search(r"(\d{4})[年.\s]*(\d{1,2})[月.\s]*(\d{1,2})日", text)
+    # 優先1：本文から抽出（西暦表記）
+    match = re.search(r"(\d{4})[年.\s]*([0-9]{1,2})[月.\s]*([0-9]{1,2})日", text)
     if match:
         year, month, day = map(int, match.groups())
         return f"{year}.{month}.{day}"
@@ -29,35 +27,45 @@ def extract_date(text, filename=None):
 
     return "日付未検出"
 
-def process_light_pdf(file):
+def is_cover_like(text):
+    """表紙的ページを検出：「小池知事 定例記者会見」と日付が含まれる"""
+    if not text:
+        return False
+    if "小池知事 定例記者会見" in text and re.search(r"\d{4}年\d{1,2}月\d{1,2}日", text):
+        return True
+    return False
+
+def process_pdf(file):
     file_bytes = file.read()
+    reader = PdfReader(io.BytesIO(file_bytes))
+    writer = PdfWriter()
 
-    # 日付取得（本文 + ファイル名）
+    # 表紙ページ候補の番号を特定
+    cover_pages = set()
+    date_str = "日付未検出"
+
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        first_page_text = pdf.pages[0].extract_text() or ""
-        date_str = extract_date(first_page_text, uploaded_file.name)
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text() or ""
+            if i == 0:
+                cover_pages.add(i)
+            elif is_cover_like(text):
+                cover_pages.add(i)
+            if date_str == "日付未検出":
+                date_str = extract_date(text, uploaded_file.name)
 
-    # PDF画像化（2ページ目以降）
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    pdf = FPDF(unit="mm", format="A4")
-    zoom = 2  # 品質と容量のバランス
+    # 残すページを追加
+    for i in range(len(reader.pages)):
+        if i not in cover_pages:
+            writer.add_page(reader.pages[i])
 
-    for i in range(1, len(doc)):  # 1ページ目（表紙）をスキップ
-        page = doc.load_page(i)
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), dpi=100)
-        temp_img_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
-        pix.save(temp_img_path)
-
-        pdf.add_page()
-        pdf.image(temp_img_path, x=0, y=0, w=210, h=297)
-        os.unlink(temp_img_path)
-
-    output_bytes = pdf.output(dest="S").encode("latin1")
-    return output_bytes, date_str
+    output_pdf = io.BytesIO()
+    writer.write(output_pdf)
+    return output_pdf.getvalue(), date_str
 
 if uploaded_file:
-    with st.spinner("PDFを軽量化＆整形中..."):
-        result_pdf, date_str = process_light_pdf(uploaded_file)
+    with st.spinner("PDFを処理中..."):
+        result_pdf, date_str = process_pdf(uploaded_file)
         filename = f"{date_str}知事記者会見.pdf"
         st.download_button(
             label=f"{filename} をダウンロード",
