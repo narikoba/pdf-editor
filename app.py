@@ -19,17 +19,20 @@ def extract_date(text):
     return "日付未検出"
 
 def process_light_pdf(file):
-    # ステップ1：表紙から日付抽出
-    with pdfplumber.open(file) as pdf:
+    import fitz
+    file_bytes = file.read()
+
+    # 表紙から日付抽出
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         first_page_text = pdf.pages[0].extract_text() or ""
         date_str = extract_date(first_page_text)
 
-    # ステップ2：PDF画像化（2ページ目以降）
-    doc = fitz.open(stream=file.read(), filetype="pdf")
+    # PDF画像化（2ページ目以降）
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
     pdf = FPDF(unit="mm", format="A4")
-    zoom = 2  # 拡大率（下げると軽くなる）
+    zoom = 2  # 拡大率（品質と容量のバランス）
 
-    for i in range(1, len(doc)):
+    for i in range(1, len(doc)):  # 1ページ目は削除（表紙）
         page = doc.load_page(i)
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), dpi=100)
         temp_img_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
@@ -39,9 +42,9 @@ def process_light_pdf(file):
         pdf.image(temp_img_path, x=0, y=0, w=210, h=297)
         os.unlink(temp_img_path)
 
-    output = io.BytesIO()
-    pdf.output(output)
-    return output.getvalue(), date_str
+    # メモリに出力（latin1が必要）
+    output_bytes = pdf.output(dest="S").encode("latin1")
+    return output_bytes, date_str
 
 if uploaded_file:
     with st.spinner("PDFを軽量化＆整形中..."):
