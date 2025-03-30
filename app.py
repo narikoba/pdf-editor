@@ -1,11 +1,10 @@
 import streamlit as st
-from PyPDF2 import PdfReader
-import pdfplumber
+import fitz  # PyMuPDF
+import io
 import tempfile
 from fpdf import FPDF
-from pdf2image import convert_from_bytes
+import pdfplumber
 import os
-import io
 
 st.title("知事記者会見 PDF 整形ツール（軽量化自動処理）")
 
@@ -20,24 +19,29 @@ def extract_date(text):
     return "日付未検出"
 
 def process_light_pdf(file):
-    # ステップ1：表紙のテキストから日付を抽出
+    # ステップ1：表紙から日付抽出
     with pdfplumber.open(file) as pdf:
         first_page_text = pdf.pages[0].extract_text() or ""
         date_str = extract_date(first_page_text)
 
-    # ステップ2：画像ベースPDFとして出力（2ページ目以降のみ）
-    images = convert_from_bytes(file.read(), dpi=100, first_page=2)
+    # ステップ2：PDF画像化（2ページ目以降）
+    doc = fitz.open(stream=file.read(), filetype="pdf")
     pdf = FPDF(unit="mm", format="A4")
-    for img in images:
-        pdf.add_page()
-        temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        img.save(temp_img.name, "JPEG")
-        pdf.image(temp_img.name, x=0, y=0, w=210, h=297)
-        os.unlink(temp_img.name)
+    zoom = 2  # 拡大率（下げると軽くなる）
 
-    out = io.BytesIO()
-    pdf.output(out)
-    return out.getvalue(), date_str
+    for i in range(1, len(doc)):
+        page = doc.load_page(i)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), dpi=100)
+        temp_img_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
+        pix.save(temp_img_path)
+
+        pdf.add_page()
+        pdf.image(temp_img_path, x=0, y=0, w=210, h=297)
+        os.unlink(temp_img_path)
+
+    output = io.BytesIO()
+    pdf.output(output)
+    return output.getvalue(), date_str
 
 if uploaded_file:
     with st.spinner("PDFを軽量化＆整形中..."):
@@ -49,4 +53,3 @@ if uploaded_file:
             file_name=filename,
             mime="application/pdf"
         )
-        
