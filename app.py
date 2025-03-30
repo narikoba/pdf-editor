@@ -3,11 +3,9 @@ from PyPDF2 import PdfReader, PdfWriter
 import pdfplumber
 import io
 import re
-import fitz  # PyMuPDF
 from datetime import datetime
-from PIL import Image
 
-st.title("知事記者会見 PDF 整形ツール（削除ページプレビュー付き）")
+st.title("知事記者会見 PDF 整形ツール")
 
 uploaded_file = st.file_uploader("PDFファイルをアップロードしてください", type="pdf")
 
@@ -53,19 +51,11 @@ def is_cover_like_page(page):
     )
     return has_title and has_date and is_centered_page(page)
 
-def render_page_image(pdf_bytes, page_number):
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    page = doc.load_page(page_number)
-    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-    return img
-
-def process_pdf(file, preview=False):
+def process_pdf(file):
     file_bytes = file.read()
     reader = PdfReader(io.BytesIO(file_bytes))
     writer = PdfWriter()
     pages_to_delete = {0, 1}
-    delete_reasons = {}
     date_str = "日付未検出"
 
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -73,20 +63,8 @@ def process_pdf(file, preview=False):
             text = page.extract_text() or ""
             if date_str == "日付未検出":
                 date_str = extract_date(text, uploaded_file.name)
-            if i == 0:
-                delete_reasons[i] = "1ページ目（自動削除）"
-            elif i == 1:
-                delete_reasons[i] = "2ページ目（自動削除）"
-            elif is_cover_like_page(page):
+            if i > 1 and is_cover_like_page(page):
                 pages_to_delete.add(i)
-                delete_reasons[i] = "表紙的ページ（中央寄せ＋タイトル＋日付）"
-
-    if preview:
-        st.subheader("🔍 削除予定ページプレビュー")
-        for i in sorted(pages_to_delete):
-            st.markdown(f"**ページ {i + 1}：{delete_reasons.get(i)}**")
-            image = render_page_image(file_bytes, i)
-            st.image(image, width=400)
 
     for i in range(len(reader.pages)):
         if i not in pages_to_delete:
@@ -97,9 +75,8 @@ def process_pdf(file, preview=False):
     return output.getvalue(), date_str
 
 if uploaded_file:
-    show_preview = st.checkbox("削除予定ページを確認する（プレビュー表示）", value=True)
-    with st.spinner("PDFを処理中..."):
-        result_pdf, date_str = process_pdf(uploaded_file, preview=show_preview)
+    with st.spinner("PDFを整形中..."):
+        result_pdf, date_str = process_pdf(uploaded_file)
         filename = f"{date_str}知事記者会見資料.pdf"
         st.download_button(
             label=f"{filename} をダウンロード",
