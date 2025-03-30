@@ -1,6 +1,4 @@
 streamlit
-PyPDF2
-pdfplumber
 fpdf
-pdf2image
-pillow
+pdfplumber
+PyMuPDF
